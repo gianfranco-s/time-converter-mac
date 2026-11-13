@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 // ZoneGrid: menu bar timezone planner.
-// Pick a local time with the slider; see the matching time in every saved city,
+// Click an hour in any city's strip; see the matching time in every saved city,
 // plus a 24-hour strip per city (green = work hours, yellow = awake, gray = night).
 //
 // Build:  swiftc -parse-as-library -O ZoneGrid.swift -o ZoneGrid
@@ -84,6 +84,25 @@ final class Model: ObservableObject {
 
     var home: TimeZone { TimeZone(identifier: homeID) ?? .current }
 
+    /// The city whose clock the typed time / clicked hour refers to. nil = follow home.
+    @Published var refID: String?
+
+    /// Falls back to home if the chosen city was removed.
+    var effectiveRefID: String {
+        if let r = refID, r == homeID || zoneIDs.contains(r) { return r }
+        return homeID
+    }
+    var ref: TimeZone { TimeZone(identifier: effectiveRefID) ?? home }
+
+    /// Switch the reference city, keeping the same instant selected (its time-of-day is
+    /// re-expressed in the new city's clock).
+    func setRef(_ id: String) {
+        let instant = selected
+        refID = id
+        let c = cal(ref).dateComponents([.hour, .minute], from: instant)
+        minutes = Double((c.hour ?? 0) * 60 + (c.minute ?? 0))
+    }
+
     /// Make `id` the home city; the previous home becomes a regular, removable city.
     func setHome(_ id: String) {
         guard id != homeID else { return }
@@ -93,21 +112,36 @@ final class Model: ObservableObject {
         homeID = id
     }
 
-    var startOfDay: Date { cal(home).startOfDay(for: Date()) }
-    var selected: Date { homeDate(minutes: minutes) }
+    var startOfDay: Date { cal(ref).startOfDay(for: Date()) }
+    var selected: Date { refDate(minutes: minutes) }
 
-    /// Wall-clock time `minutes` after midnight in the home zone, today. Built from calendar
+    /// Wall-clock time `minutes` after midnight in the reference city, today. Built from calendar
     /// components (not seconds) so it stays correct on 23/25-hour DST transition days.
-    func homeDate(minutes: Double) -> Date {
+    func refDate(minutes: Double) -> Date {
         let m = Int(minutes)
-        return cal(home).date(bySettingHour: m / 60, minute: m % 60, second: 0, of: Date())
+        return cal(ref).date(bySettingHour: m / 60, minute: m % 60, second: 0, of: Date())
             ?? startOfDay.addingTimeInterval(minutes * 60)
     }
 
     func setNow() {
-        let c = cal(home).dateComponents([.hour, .minute], from: Date())
+        let c = cal(ref).dateComponents([.hour, .minute], from: Date())
         let m = Double((c.hour ?? 0) * 60 + (c.minute ?? 0))
         minutes = min(1425, (m / 15).rounded() * 15)
+    }
+
+    /// Parses "14:30", "9:05", "1430", "930" or "14" into minutes since midnight.
+    static func parseTime(_ text: String) -> Double? {
+        let t = text.trimmingCharacters(in: .whitespaces)
+        var h: Int?, mi = 0
+        if t.contains(":") {
+            let p = t.split(separator: ":", omittingEmptySubsequences: false)
+            guard p.count == 2, let a = Int(p[0]), let b = Int(p[1]) else { return nil }
+            h = a; mi = b
+        } else if let n = Int(t), t.count <= 4 {
+            if t.count <= 2 { h = n } else { h = n / 100; mi = n % 100 }
+        }
+        guard let hh = h, (0..<24).contains(hh), (0..<60).contains(mi) else { return nil }
+        return Double(hh * 60 + mi)
     }
 
     func cal(_ tz: TimeZone) -> Calendar {
@@ -132,14 +166,14 @@ final class Model: ObservableObject {
 
     /// Whole days the city's calendar date differs from the local date at `d`.
     func dayOffset(_ d: Date, _ tz: TimeZone) -> Int {
-        let a = cal(home).dateComponents([.year, .month, .day], from: d)
+        let a = cal(ref).dateComponents([.year, .month, .day], from: d)
         let b = cal(tz).dateComponents([.year, .month, .day], from: d)
         guard let da = utc.date(from: a), let db = utc.date(from: b) else { return 0 }
         return Int((db.timeIntervalSince(da) / 86400).rounded())
     }
 
     func offsetLabel(_ tz: TimeZone) -> String {
-        let secs = tz.secondsFromGMT(for: selected) - home.secondsFromGMT(for: selected)
+        let secs = tz.secondsFromGMT(for: selected) - ref.secondsFromGMT(for: selected)
         guard secs != 0 else { return "" }
         let a = abs(secs) / 60
         let sign = secs < 0 ? "-" : "+"
@@ -152,6 +186,14 @@ struct ContentView: View {
     @State private var query = ""
     @State private var adding = false
     @FocusState private var searchFocused: Bool
+    @State private var editingTime = false
+    @State private var timeText = ""
+    @FocusState private var timeFocused: Bool
+
+    func commitTime() {
+        if let v = Model.parseTime(timeText) { m.minutes = v }
+        editingTime = false
+    }
 
     var matches: [String] {
         let q = query.lowercased().trimmingCharacters(in: .whitespaces)
@@ -165,10 +207,52 @@ struct ContentView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("When it's").font(.headline)
-                Text(m.timeString(m.selected, m.home)).font(.headline.monospacedDigit())
-                Text("in \(m.name(m.home))").foregroundStyle(.secondary)
+                Text("When it's")
+                if editingTime {
+                    TextField("HH:mm", text: $timeText)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.body.monospacedDigit())
+                        .frame(width: 70)
+                        .focused($timeFocused)
+                        .onSubmit { commitTime() }
+                        .onExitCommand { editingTime = false }
+                        .onChange(of: timeFocused) { focused in
+                            if !focused { editingTime = false }
+                        }
+                } else {
+                    Text(m.timeString(m.selected, m.ref))
+                        .font(.body.monospacedDigit())
+                        .underline(pattern: .dot)
+                        .help("Click to type a time (click an hour below to reset)")
+                        .onTapGesture {
+                            timeText = m.timeString(m.selected, m.ref)
+                            editingTime = true
+                            timeFocused = true
+                        }
+                }
+                Text("in").foregroundStyle(.secondary)
+                Menu {
+                    ForEach([m.homeID] + m.zoneIDs, id: \.self) { id in
+                        Button {
+                            m.setRef(id)
+                        } label: {
+                            if id == m.effectiveRefID {
+                                Label(m.name(TimeZone(identifier: id) ?? .current), systemImage: "checkmark")
+                            } else {
+                                Text(m.name(TimeZone(identifier: id) ?? .current))
+                            }
+                        }
+                    }
+                } label: {
+                    Text(m.name(m.ref)).underline(pattern: .dot)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Choose which city the time refers to")
                 Spacer()
+                Text("UTC \(m.timeString(m.selected, TimeZone(identifier: "UTC")!))")
+                    .font(.body.monospacedDigit())
+                    .foregroundStyle(.secondary)
                 Button("Now") { m.setNow() }
                 Button {
                     adding.toggle()
@@ -180,8 +264,6 @@ struct ContentView: View {
                 .buttonStyle(.borderless)
                 .help(adding ? "Hide add city" : "Add city")
             }
-
-            Slider(value: $m.minutes, in: 0...1425, step: 15)
 
             CityRow(tz: m.home, isHome: true)
             ForEach(m.zoneIDs, id: \.self) { id in
@@ -216,6 +298,13 @@ struct CityRow: View {
     @State private var dragStart: Int?
     @State private var dragY: CGFloat = 0
 
+    var subtitle: String {
+        let isRef = tz.identifier == m.effectiveRefID
+        let parts = [isHome ? "home" : nil, isRef ? "selected" : nil,
+                     isRef ? nil : m.offsetLabel(tz)].compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.joined(separator: " · ")
+    }
+
     var body: some View {
         let off = m.dayOffset(m.selected, tz)
         HStack(spacing: 8) {
@@ -227,7 +316,7 @@ struct CityRow: View {
                 .gesture(isHome ? nil : reorderGesture)
             VStack(alignment: .leading, spacing: 0) {
                 Text(m.name(tz)).font(.system(size: 13, weight: .semibold))
-                Text(isHome ? "home" : m.offsetLabel(tz))
+                Text(subtitle)
                     .font(.caption).foregroundStyle(.secondary)
             }
             .frame(width: 90, alignment: .leading)
@@ -289,7 +378,7 @@ struct CityRow: View {
 
     @ViewBuilder
     func strip(_ h: Int) -> some View {
-        let d = m.homeDate(minutes: Double(h) * 60)
+        let d = m.refDate(minutes: Double(h) * 60)
         let c = m.cal(tz)
         let hr = c.component(.hour, from: d)
         let label = hr == 0 ? "\(c.component(.day, from: d))" : "\(hr)"
@@ -303,5 +392,7 @@ struct CityRow: View {
             .background(color)
             .overlay(RoundedRectangle(cornerRadius: 3)
                 .stroke(selected ? Color.primary : .clear, lineWidth: 2))
+            .contentShape(Rectangle())
+            .onTapGesture { m.minutes = Double(h * 60) }
     }
 }

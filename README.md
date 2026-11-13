@@ -1,7 +1,7 @@
 # ZoneGrid
 
 A small macOS menu bar app for planning across timezones. Pick a time in your home
-timezone with the slider and see what time it will be in every saved city, plus a
+timezone by clicking an hour and see what time it will be in every saved city, plus a
 24-hour strip per city (green = work hours, yellow = awake, gray = night).
 A local replacement for worldtimebuddy.com.
 
