@@ -381,17 +381,24 @@ struct CityRow: View {
         let d = m.refDate(minutes: Double(h) * 60)
         let c = m.cal(tz)
         let hr = c.component(.hour, from: d)
-        let label = hr == 0 ? "\(c.component(.day, from: d))" : "\(hr)"
+        let label = "\(hr)"
         let color: Color = (9..<18).contains(hr) ? .green.opacity(0.35)
             : ((7..<9).contains(hr) || (18..<22).contains(hr)) ? .yellow.opacity(0.25)
             : .gray.opacity(0.25)
         let selected = h == Int(m.minutes / 60)
+        let newDay = hr == 0 && h > 0
         Text(label)
-            .font(.system(size: 10, weight: hr == 0 ? .bold : .regular).monospacedDigit())
+            .font(.system(size: 10).monospacedDigit())
             .frame(width: 20, height: 26)
             .background(color)
             .overlay(RoundedRectangle(cornerRadius: 3)
                 .stroke(selected ? Color.primary : .clear, lineWidth: 2))
+            .overlay(alignment: .leading) {
+                // Day boundary: divider where this city's calendar date changes.
+                if newDay {
+                    Rectangle().fill(Color.primary.opacity(0.7)).frame(width: 2)
+                }
+            }
             .contentShape(Rectangle())
             .onTapGesture { m.minutes = Double(h * 60) }
     }

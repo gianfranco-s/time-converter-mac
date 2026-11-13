@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- **Day separation:** a divider in each city's strip marks where that city's date changes,
+  so hours read `22, 23 | 0, 1, 2`.
 - **UTC clock** in the header, left of "Now", showing the selected moment in UTC.
 - **Home city:** a house button on each city row sets it as home. Home is pinned at the top
   and is the reference zone for the selected hour, offsets and day markers. The previous home
@@ -22,6 +24,7 @@
 - **Slider removed:** click any hour cell in a city's 24-hour strip to select that time
   (all rows stay aligned to the same instant). "Now" still jumps to the current time.
 - Menu bar shell moved from `MenuBarExtra` to `NSStatusItem` + popover to support right-click.
+- Header text ("When it's HH:mm in …") is no longer bold.
 - Window widened to 820 pt so all row information fits.
 
 ### Fixed
