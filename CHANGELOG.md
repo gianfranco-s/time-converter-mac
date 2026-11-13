@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.0 - 2026-11-13
+
+### Added
+- Right-click menu shows the app version in small, non-clickable text.
+
+### Changed
+- Right-click menu is simpler: no icon or keyboard shortcut next to Quit.
+
+### Fixed
+- Dragging a city by its ≡ handle now works. The SwiftUI drag gesture did not fire inside the
+  menu bar popover, so the handle reads mouse events directly (AppKit).
+
 ## 1.0.0 - 2026-11-13
 
 ### Added

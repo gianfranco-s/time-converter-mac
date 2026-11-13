@@ -41,12 +41,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    @objc private func quit() { NSApplication.shared.terminate(nil) }
+
     @objc private func clicked(_ sender: NSStatusBarButton) {
         guard let event = NSApp.currentEvent else { return }
         if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
             popover.performClose(nil)
             let menu = NSMenu()
-            menu.addItem(withTitle: "Quit ZoneGrid", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+            menu.autoenablesItems = false
+
+            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+            let info = NSMenuItem(title: "Version \(version)", action: nil, keyEquivalent: "")
+            info.isEnabled = false
+            info.attributedTitle = NSAttributedString(
+                string: "Version \(version)",
+                attributes: [.font: NSFont.systemFont(ofSize: 10),
+                             .foregroundColor: NSColor.secondaryLabelColor])
+            menu.addItem(info)
+            menu.addItem(.separator())
+
+            // Custom selector (not NSApplication.terminate) so macOS adds no automatic icon;
+            // empty key equivalent so no shortcut is shown.
+            menu.addItem(withTitle: "Quit ZoneGrid", action: #selector(quit), keyEquivalent: "")
             statusItem.menu = menu
             sender.performClick(nil)   // show the menu under the icon
             statusItem.menu = nil      // restore custom click handling
@@ -308,12 +324,13 @@ struct CityRow: View {
     var body: some View {
         let off = m.dayOffset(m.selected, tz)
         HStack(spacing: 8) {
-            Image(systemName: "line.3.horizontal")
-                .foregroundStyle(.secondary)
-                .opacity(isHome ? 0 : 1)
-                .frame(width: 24, height: 30)
-                .contentShape(Rectangle())
-                .gesture(isHome ? nil : reorderGesture)
+            ZStack {
+                if !isHome {
+                    Image(systemName: "line.3.horizontal").foregroundStyle(.secondary)
+                    DragHandle(onChanged: reorderChanged, onEnded: reorderEnded)
+                }
+            }
+            .frame(width: 24, height: 30)
             VStack(alignment: .leading, spacing: 0) {
                 Text(m.name(tz)).font(.system(size: 13, weight: .semibold))
                 Text(subtitle)
@@ -355,25 +372,23 @@ struct CityRow: View {
 
     /// Live drag-to-reorder: the row follows the cursor, neighbours shift as it passes them.
     /// Only indices within `zoneIDs` are reachable, so the home row always stays first.
-    var reorderGesture: some Gesture {
-        DragGesture(minimumDistance: 2, coordinateSpace: .global)
-            .onChanged { v in
-                guard let cur = m.zoneIDs.firstIndex(of: tz.identifier) else { return }
-                let start = dragStart ?? cur
-                dragStart = start
-                let t = v.translation.height
-                let target = min(max(start + Int((t / m.rowStep).rounded()), 0), m.zoneIDs.count - 1)
-                var idx = cur
-                if target != cur {
-                    m.zoneIDs.move(fromOffsets: [cur], toOffset: target > cur ? target + 1 : target)
-                    idx = target
-                }
-                dragY = t - CGFloat(idx - start) * m.rowStep
-            }
-            .onEnded { _ in
-                withAnimation(.easeOut(duration: 0.15)) { dragY = 0 }
-                dragStart = nil
-            }
+    /// `t` is the vertical distance dragged (positive = down).
+    func reorderChanged(_ t: CGFloat) {
+        guard let cur = m.zoneIDs.firstIndex(of: tz.identifier) else { return }
+        let start = dragStart ?? cur
+        dragStart = start
+        let target = min(max(start + Int((t / m.rowStep).rounded()), 0), m.zoneIDs.count - 1)
+        var idx = cur
+        if target != cur {
+            m.zoneIDs.move(fromOffsets: [cur], toOffset: target > cur ? target + 1 : target)
+            idx = target
+        }
+        dragY = t - CGFloat(idx - start) * m.rowStep
+    }
+
+    func reorderEnded() {
+        withAnimation(.easeOut(duration: 0.15)) { dragY = 0 }
+        dragStart = nil
     }
 
     @ViewBuilder
@@ -401,5 +416,40 @@ struct CityRow: View {
             }
             .contentShape(Rectangle())
             .onTapGesture { m.minutes = Double(h * 60) }
+    }
+}
+
+/// AppKit drag handle. SwiftUI's DragGesture did not fire inside the status-item popover,
+/// so this reads mouse events directly and reports the vertical drag distance.
+struct DragHandle: NSViewRepresentable {
+    var onChanged: (CGFloat) -> Void
+    var onEnded: () -> Void
+
+    func makeNSView(context: Context) -> HandleView {
+        let v = HandleView()
+        v.onChanged = onChanged
+        v.onEnded = onEnded
+        return v
+    }
+
+    func updateNSView(_ v: HandleView, context: Context) {
+        v.onChanged = onChanged
+        v.onEnded = onEnded
+    }
+
+    final class HandleView: NSView {
+        var onChanged: (CGFloat) -> Void = { _ in }
+        var onEnded: () -> Void = {}
+        private var startY: CGFloat = 0
+
+        override var mouseDownCanMoveWindow: Bool { false }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+        override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
+
+        override func mouseDown(with event: NSEvent) { startY = NSEvent.mouseLocation.y }
+        override func mouseDragged(with event: NSEvent) {
+            onChanged(startY - NSEvent.mouseLocation.y)   // screen y points up; down = positive
+        }
+        override func mouseUp(with event: NSEvent) { onEnded() }
     }
 }

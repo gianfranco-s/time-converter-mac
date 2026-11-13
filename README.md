@@ -33,8 +33,9 @@ What the script does:
    `LSUIElement` so the app lives in the menu bar only (no Dock icon).
 4. Ad-hoc signs the bundle (`codesign --sign -`) so macOS will launch it on this machine.
 
-The version number is set in two places: `VERSION` in `scripts/build-app.sh` and the heading in
-`CHANGELOG.md`.
+The app version is the latest git tag (`v1.1.0` becomes `1.1.0`), read by the script at build time.
+To release: update `CHANGELOG.md`, commit, then `git tag -a vX.Y.Z -m "X.Y.Z"` and `git push --tags`
+before building. The right-click menu shows this version.
 
 ### Keep it across restarts
 
