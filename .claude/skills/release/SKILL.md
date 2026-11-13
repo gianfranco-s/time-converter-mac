@@ -1,6 +1,6 @@
 ---
 name: release
-description: Tag a ZoneGrid release, push it, then build and relaunch the app. Use as /release X.Y.Z, or /release with no version to only rebuild and relaunch the current build.
+description: Tag a ZoneGrid release, push it, then build and relaunch the app. Use as /release X.Y.Z, or /release with no version to get a proposed next version (or just rebuild and relaunch).
 disable-model-invocation: true
 argument-hint: "[X.Y.Z]"
 ---
@@ -10,7 +10,21 @@ reads `git describe --tags`), so the tag must exist **before** building.
 
 Argument: `$ARGUMENTS` (a version like `1.2.0`, optional).
 
-## If a version was given
+## If no version was given: propose one
+
+1. Find the last tag (`git tag --sort=-v:refname | head -1`) and review what changed since it
+   (`git log <tag>..HEAD --oneline`, `git diff <tag> --stat`, and any `CHANGELOG.md` entries
+   newer than the tag).
+2. Pick the bump using semver:
+   - **patch** (1.1.0 -> 1.1.1): only fixes or internal changes.
+   - **minor** (1.1.0 -> 1.2.0): new user-visible features, backwards compatible.
+   - **major** (1.1.0 -> 2.0.0): breaking changes (e.g. saved settings no longer readable).
+   - If nothing changed since the tag, say so and propose no release.
+3. Ask the user (AskUserQuestion) with the recommended version first, marked "(Recommended)",
+   plus the other two bumps, and a "Just rebuild and relaunch" option. Include a one-line
+   reason for the recommendation. Then continue with the chosen version below.
+
+## Releasing a version (given or chosen)
 
 1. **Checks** (stop and report if any fails):
    - On branch `main`; `git fetch` shows it isn't behind `origin/main`.
@@ -32,5 +46,5 @@ Argument: `$ARGUMENTS` (a version like `1.2.0`, optional).
 6. Report the version, commit, and whether the push succeeded. Do not copy to `/Applications`
    unless asked.
 
-If no version was given, skip steps 1–3 and say the build is from the current tag
-(it will not match a newer unreleased commit).
+If the user chose "Just rebuild and relaunch", skip steps 1–3 and say the build is from the
+current tag (it will not match a newer unreleased commit).
