@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 - 2026-11-13
 
 ### Added
 - **Day separation:** a divider in each city's strip marks where that city's date changes,
